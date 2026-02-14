@@ -1,0 +1,48 @@
+name: Build C# EXE (with modern csc)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 使用 vswhere 查找最新 csc.exe
+        id: find_csc
+        shell: pwsh
+        run: |
+          # 安装 vswhere（如果未安装）
+          if (!(Get-Command vswhere -ErrorAction SilentlyContinue)) {
+            choco install vswhere -y
+          }
+          $cscPath = & vswhere -latest -products * -find **/csc.exe | Select-Object -First 1
+          if (!$cscPath) {
+            Write-Host "未找到 csc.exe，尝试备用路径"
+            # 备用：尝试 .NET SDK 路径
+            $cscPath = "C:\Program Files\dotnet\sdk\*\Roslyn\bincore\csc.dll"
+          }
+          Write-Host "csc路径: $cscPath"
+          echo "csc_path=$cscPath" >> $env:GITHUB_OUTPUT
+
+      - name: 编译为 EXE（使用新版编译器）
+        shell: cmd
+        run: |
+          set CSC_PATH=${{ steps.find_csc.outputs.csc_path }}
+          # 如果路径指向 csc.dll（.NET Core 版本），使用 dotnet 执行
+          if "%CSC_PATH:.dll=%" neq "%CSC_PATH%" (
+            dotnet "%CSC_PATH%" /target:winexe /out:FileBatchPrinter.exe Program.cs /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /langversion:latest
+          ) else (
+            "%CSC_PATH%" /target:winexe /out:FileBatchPrinter.exe Program.cs /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /langversion:latest
+          )
+
+      - name: 上传生成的 EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FileBatchPrinter
+          path: FileBatchPrinter.exe
